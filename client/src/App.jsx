@@ -1,165 +1,115 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 
 const BACKEND = "";           // relative — works via Vite proxy
 const WS_URL  = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/terminal`;
-const STORAGE_KEY_HISTORY = "term:history";
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
-function b64dec(s) { try { return decodeURIComponent(escape(atob(s))); } catch { return atob(s); } }
 
-// ── Single terminal pane with real SSH over WebSocket ─────────────────────────
-function TerminalPane({ connection, history, onCommand }) {
-  const [lines, setLines]     = useState([]);
-  const [input, setInput]     = useState("");
-  const [histIdx, setHistIdx] = useState(-1);
-  const [status, setStatus]   = useState("disconnected"); // connecting|connected|disconnected|error
-  const [search, setSearch]   = useState({ active:false, query:"", match:"" });
-  const wsRef    = useRef(null);
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
+// ── Single terminal pane — xterm.js + SSH over WebSocket ──────────────────────
+function TerminalPane({ connection }) {
+  const containerRef = useRef(null);
+  const [status, setStatus] = useState("disconnected");
 
-  // ── Connect / disconnect on mount ──────────────────────────────────────────
   useEffect(() => {
-    if (!connection) return;
-    setLines([`Connecting to ${connection.name} (${connection.user}@${connection.host}:${connection.port})…`]);
+    if (!connection || !containerRef.current) return;
     setStatus("connecting");
 
+    const term = new Terminal({
+      theme: {
+        background: "#0d1117", foreground: "#c9d1d9", cursor: "#c9d1d9",
+        selectionBackground: "#264f78",
+        black: "#484f58",   red: "#ff7b72",   green: "#3fb950",  yellow: "#d29922",
+        blue: "#58a6ff",    magenta: "#bc8cff", cyan: "#39c5cf",  white: "#b1bac4",
+        brightBlack: "#6e7681", brightRed: "#ffa198",  brightGreen: "#56d364",
+        brightYellow: "#e3b341", brightBlue: "#79c0ff", brightMagenta: "#d2a8ff",
+        brightCyan: "#56d4dd",  brightWhite: "#f0f6fc",
+      },
+      fontFamily: "'Fira Mono','Courier New',monospace",
+      fontSize: 13,
+      lineHeight: 1.5,
+      cursorBlink: true,
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(containerRef.current);
+    fitAddon.fit();
+
+    // Re-fit when the container changes size (handles splits + window resize)
+    const ro = new ResizeObserver(() => fitAddon.fit());
+    ro.observe(containerRef.current);
+
     const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
         type: "connect",
-        host: connection.host,
-        port: connection.port,
-        user: connection.user,
-        identityFile: connection.identityFile,
-        cols: 220, rows: 50,
+        host: connection.host, port: connection.port,
+        user: connection.user, identityFile: connection.identityFile,
+        cols: term.cols, rows: term.rows,
       }));
     };
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === "data") {
-        setLines(l => [...l, b64dec(msg.data)]);
+        term.write(Uint8Array.from(atob(msg.data), c => c.charCodeAt(0)));
       } else if (msg.type === "status") {
         setStatus(msg.status);
-        if (msg.status === "connected") setLines(l => [...l, "── connected ──\r\n"]);
-        if (msg.status === "disconnected") setLines(l => [...l, "\r\n── session ended ──"]);
       } else if (msg.type === "error") {
         setStatus("error");
-        setLines(l => [...l, `\r\nError: ${msg.message}`]);
+        term.writeln(`\r\nError: ${msg.message}`);
       }
     };
 
     ws.onclose = () => setStatus("disconnected");
 
-    return () => { ws.close(); };
+    // Keyboard input → SSH
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "data", data: b64enc(data) }));
+    });
+
+    // Terminal resize → SSH pty resize
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+    });
+
+    return () => {
+      ro.disconnect();
+      ws.close();
+      term.dispose();
+    };
   }, [connection?.name]);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [lines]);
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  // ── Send keystroke ─────────────────────────────────────────────────────────
-  const send = useCallback((text) => {
-    wsRef.current?.send(JSON.stringify({ type:"data", data: b64enc(text) }));
-  }, []);
-
-  // ── Submit command ─────────────────────────────────────────────────────────
-  const submit = useCallback((cmd) => {
-    onCommand(cmd);
-    send(cmd + "\n");
-    setInput("");
-    setHistIdx(-1);
-  }, [send, onCommand]);
-
-  function handleKeyDown(e) {
-    // Ctrl-R
-    if (e.ctrlKey && e.key === "r") {
-      e.preventDefault();
-      setSearch(s => ({ active:!s.active, query:"", match:"" }));
-      return;
-    }
-    // Ctrl-C / Ctrl-D etc — forward raw
-    if (e.ctrlKey && !search.active) {
-      const ctrlMap = { c:"\x03", d:"\x04", z:"\x1a", l:"\x0c", a:"\x01", e:"\x05", u:"\x15", k:"\x0b" };
-      if (ctrlMap[e.key]) { e.preventDefault(); send(ctrlMap[e.key]); return; }
-    }
-    if (search.active) {
-      if (e.key === "Escape") { setSearch({ active:false, query:"", match:"" }); return; }
-      if (e.key === "Enter")  { setInput(search.match); setSearch({ active:false, query:"", match:"" }); return; }
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = Math.min(histIdx + 1, history.length - 1);
-      setHistIdx(next);
-      setInput(history[history.length - 1 - next] ?? "");
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = Math.max(histIdx - 1, -1);
-      setHistIdx(next);
-      setInput(next === -1 ? "" : history[history.length - 1 - next] ?? "");
-    } else if (e.key === "Enter") {
-      submit(input);
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      send("\t"); // forward tab for remote completion
-    }
-  }
-
-  function handleSearchChange(e) {
-    const q = e.target.value;
-    const matches = history.filter(h => h.includes(q));
-    setSearch(s => ({ ...s, query:q, match: matches[matches.length-1] ?? "" }));
-  }
 
   const statusColor = { connected:"#56d364", connecting:"#f0883e", disconnected:"#8b949e", error:"#f85149" }[status];
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", height:"100%", background:"#0d1117", color:"#c9d1d9", fontFamily:"'Fira Mono','Courier New',monospace", fontSize:13 }}>
-      {/* status bar */}
-      <div style={{ background:"#161b22", borderBottom:"1px solid #30363d", padding:"2px 12px", fontSize:11, color:statusColor, display:"flex", justifyContent:"space-between" }}>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", background:"#0d1117" }}>
+      <div style={{ background:"#161b22", borderBottom:"1px solid #30363d", padding:"2px 12px", fontSize:11, color:statusColor, display:"flex", justifyContent:"space-between", flexShrink:0 }}>
         <span>● {status}</span>
         <span style={{ color:"#8b949e" }}>{connection?.user}@{connection?.host}:{connection?.port}</span>
       </div>
-      {/* output */}
-      <div style={{ flex:1, overflowY:"auto", overflowX:"auto", padding:"8px 12px", whiteSpace:"pre", minWidth:0, lineHeight:1.5 }}>
-        {lines.map((l, i) => <span key={i}>{l}</span>)}
-        <div ref={bottomRef} />
-      </div>
-      {/* i-search */}
-      {search.active && (
-        <div style={{ background:"#161b22", borderTop:"1px solid #30363d", padding:"4px 12px", display:"flex", alignItems:"center", gap:8 }}>
-          <span style={{ color:"#f0883e" }}>i-search:</span>
-          <input autoFocus value={search.query} onChange={handleSearchChange} onKeyDown={handleKeyDown}
-            style={{ flex:1, background:"transparent", border:"none", outline:"none", color:"#c9d1d9", fontFamily:"inherit", fontSize:13 }} placeholder="search history…" />
-          {search.match && <span style={{ color:"#79c0ff", fontSize:12 }}>{search.match}</span>}
-          <span style={{ color:"#8b949e", fontSize:11 }}>↵ select · Esc cancel</span>
-        </div>
-      )}
-      {/* input */}
-      <div style={{ display:"flex", alignItems:"center", borderTop:"1px solid #30363d", padding:"6px 12px", background:"#161b22" }}>
-        <span style={{ color:"#56d364", marginRight:6 }}>{connection?.user}@{connection?.host}:~$</span>
-        <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-          style={{ flex:1, background:"transparent", border:"none", outline:"none", color:"#c9d1d9", fontFamily:"inherit", fontSize:13 }}
-          spellCheck={false} autoComplete="off" />
-      </div>
+      <div ref={containerRef} style={{ flex:1, overflow:"hidden" }} />
     </div>
   );
 }
 
 // ── Split view ─────────────────────────────────────────────────────────────────
-function SplitView({ panes, connection, history, onCommand, onClose }) {
+function SplitView({ panes, connection, onClose }) {
   return (
     <div style={{ display:"flex", flexDirection:"row", height:"100%", gap:2 }}>
       {panes.map(p => (
-        <div key={p.id} style={{ flex:1, minWidth:0, position:"relative", border:"1px solid #30363d" }}>
+        <div key={p.id} style={{ flex:1, minWidth:0, position:"relative", border:"1px solid #30363d", height:"100%" }}>
           {panes.length > 1 && (
             <button onClick={() => onClose(p.id)} style={{ position:"absolute", top:4, right:6, zIndex:10, background:"transparent", border:"none", color:"#8b949e", cursor:"pointer", fontSize:12 }}>✕</button>
           )}
-          <TerminalPane connection={connection} history={history} onCommand={onCommand} />
+          <TerminalPane connection={connection} />
         </div>
       ))}
     </div>
@@ -169,18 +119,12 @@ function SplitView({ panes, connection, history, onCommand, onClose }) {
 // ── App ────────────────────────────────────────────────────────────────────────
 export default function App() {
   const [hosts, setHosts]     = useState([]);
-  const [history, setHistory] = useState([]);
   const [tabs, setTabs]       = useState([]);
   const [activeTab, setActiveTab] = useState(null);
   const [backendOk, setBackendOk] = useState(null);
-  const loaded = useRef(false);
 
-  // load history from storage + fetch hosts from backend
   useEffect(() => {
     (async () => {
-      try { const r = await window.storage.get(STORAGE_KEY_HISTORY); if (r) setHistory(JSON.parse(r.value)); } catch {}
-      loaded.current = true;
-      // probe backend
       try {
         const r = await fetch(`${BACKEND}/hosts`);
         const h = await r.json();
@@ -195,15 +139,6 @@ export default function App() {
         setBackendOk(false);
       }
     })();
-  }, []);
-
-  useEffect(() => {
-    if (!loaded.current) return;
-    window.storage.set(STORAGE_KEY_HISTORY, JSON.stringify(history.slice(-500))).catch(()=>{});
-  }, [history]);
-
-  const addCommand = useCallback((cmd) => {
-    setHistory(h => [...h.filter(x => x !== cmd), cmd]);
   }, []);
 
   const activeTabObj = tabs.find(t => t.id === activeTab);
@@ -263,7 +198,6 @@ export default function App() {
               {tabs.length > 1 && <span onClick={e => { e.stopPropagation(); closeTab(t.id); }} style={{ color:"#8b949e", fontSize:10, cursor:"pointer" }}>✕</span>}
             </div>
           ))}
-          {/* new tab picker */}
           <select onChange={e => { if (e.target.value) { newTab(hosts.find(h => h.name === e.target.value)); e.target.value=""; } }}
             style={{ background:"#161b22", border:"1px solid #30363d", borderRadius:6, color:"#c9d1d9", padding:"2px 8px", fontSize:12, cursor:"pointer" }}>
             <option value="">＋ New tab…</option>
@@ -276,8 +210,7 @@ export default function App() {
       {/* terminal */}
       <div style={{ flex:1, overflow:"hidden" }}>
         {activeTabObj && (
-          <SplitView panes={activeTabObj.panes} connection={activeTabObj.conn}
-            history={history} onCommand={addCommand} onClose={closePane} />
+          <SplitView panes={activeTabObj.panes} connection={activeTabObj.conn} onClose={closePane} />
         )}
       </div>
     </div>
