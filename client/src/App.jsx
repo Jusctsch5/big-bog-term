@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 const BACKEND = "";           // relative — works via Vite proxy
+const TERMINAL_COLS = 220;    // fixed column width — viewport scrolls horizontally
 const WS_URL  = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/terminal`;
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -37,10 +38,15 @@ function TerminalPane({ connection }) {
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
+    // Initial fit: use fitAddon for first render, then lock to TERMINAL_COLS
     fitAddon.fit();
+    term.resize(TERMINAL_COLS, term.rows);
 
-    // Re-fit when the container changes size (handles splits + window resize)
-    const ro = new ResizeObserver(() => fitAddon.fit());
+    // On layout change: keep rows fitted to viewport height, cols fixed
+    const ro = new ResizeObserver(() => {
+      const dims = fitAddon.proposeDimensions();
+      if (dims) term.resize(TERMINAL_COLS, dims.rows);
+    });
     ro.observe(containerRef.current);
 
     const ws = new WebSocket(WS_URL);
@@ -95,7 +101,9 @@ function TerminalPane({ connection }) {
         <span>● {status}</span>
         <span style={{ color:"#8b949e" }}>{connection?.user}@{connection?.host}:{connection?.port}</span>
       </div>
-      <div ref={containerRef} style={{ flex:1, overflow:"hidden" }} />
+      <div style={{ flex:1, overflowX:"auto", overflowY:"hidden" }}>
+        <div ref={containerRef} style={{ height:"100%" }} />
+      </div>
     </div>
   );
 }
