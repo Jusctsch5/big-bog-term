@@ -73,7 +73,8 @@ function TerminalPane({ connection }) {
     // is inline-block and changes size whenever xterm resizes its canvas.
     const ro = new ResizeObserver(() => {
       const dims = fitAddon.proposeDimensions();
-      if (dims) term.resize(TERMINAL_COLS, dims.rows);
+      // dims.rows can be 0 when the tab is hidden (display:none) — skip those
+      if (dims && dims.rows > 0) term.resize(TERMINAL_COLS, dims.rows);
     });
     ro.observe(outerRef.current);
 
@@ -291,11 +292,13 @@ export default function App() {
         <button onClick={splitPane} style={btn}>⊞ Split</button>
       </div>
 
-      {/* terminal */}
-      <div style={{ flex:1, overflow:"hidden" }}>
-        {activeTabObj && (
-          <SplitView panes={activeTabObj.panes} connection={activeTabObj.conn} onClose={closePane} />
-        )}
+      {/* terminal — all tabs stay mounted so SSH sessions survive tab switches */}
+      <div style={{ flex:1, overflow:"hidden", position:"relative" }}>
+        {tabs.map(tab => (
+          <div key={tab.id} style={{ position:"absolute", inset:0, display: tab.id === activeTab ? "flex" : "none", flexDirection:"column" }}>
+            <SplitView panes={tab.panes} connection={tab.conn} onClose={closePane} />
+          </div>
+        ))}
       </div>
     </div>
   );
