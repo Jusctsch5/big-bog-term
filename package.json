@@ -1,20 +1,45 @@
 {
   "name": "big-bog-term",
   "version": "1.0.0",
-  "description": "",
-  "main": "server.js",
+  "description": "Web-based SSH terminal",
+  "main": "electron/main.cjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start":          "node server.js",
+    "electron:dev":   "electron .",
+    "electron:pack":  "npm --prefix client run build && electron-builder --dir",
+    "electron:dist":  "npm --prefix client run build && electron-builder"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "express": "^5.2.1",
+    "express":    "^5.2.1",
     "ssh-config": "^5.1.0",
-    "ssh2": "^1.17.0",
-    "ws": "^8.19.0"
+    "ssh2":       "^1.17.0",
+    "ws":         "^8.19.0"
+  },
+  "devDependencies": {
+    "electron":         "^34.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId":       "com.jusctsch5.big-bog-term",
+    "productName": "Big Bog Term",
+    "asar":        false,
+    "files": [
+      "electron/**/*",
+      "server.js",
+      "package.json",
+      "node_modules/**/*",
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

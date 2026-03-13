@@ -7,7 +7,10 @@ import { WebSocketServer } from "ws";
 import { Client } from "ssh2";
 import { readFileSync, existsSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import express from "express";
 import SSHConfig from "ssh-config";
 
@@ -47,6 +50,10 @@ app.use((_, res, next) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   next();
 });
+
+// Serve built frontend when running as a packaged Electron app
+const distPath = join(__dirname, "client", "dist");
+if (existsSync(distPath)) app.use(express.static(distPath));
 
 app.get("/hosts", (_, res) => {
   try { res.json(loadSSHConfig()); }

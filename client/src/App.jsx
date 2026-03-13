@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 const BACKEND = "";           // relative — works via Vite proxy
-const TERMINAL_COLS = 220;    // fixed column width — viewport scrolls horizontally
+const TERMINAL_COLS = 2000;   // wide enough that lines never wrap in practice; viewport scrolls horizontally
 const WS_URL  = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/terminal`;
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -12,7 +12,8 @@ function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
 
 // ── Single terminal pane — xterm.js + SSH over WebSocket ──────────────────────
 function TerminalPane({ connection }) {
-  const containerRef = useRef(null);
+  const outerRef    = useRef(null); // observed for layout changes
+  const containerRef = useRef(null); // xterm mount point (inline-block, sizes to canvas)
   const [status, setStatus] = useState("disconnected");
 
   useEffect(() => {
@@ -42,12 +43,29 @@ function TerminalPane({ connection }) {
     fitAddon.fit();
     term.resize(TERMINAL_COLS, term.rows);
 
-    // On layout change: keep rows fitted to viewport height, cols fixed
+    // Ctrl+Shift+Up/Down → scroll one line without forwarding to PTY
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type === "keydown" && e.ctrlKey) {
+        if (e.shiftKey) {
+          if (e.key === "ArrowUp")   { term.scrollLines(-1); return false; }
+          if (e.key === "ArrowDown") { term.scrollLines(1);  return false; }
+        }
+        if (!e.shiftKey && e.key === "v") {
+          navigator.clipboard.readText().then(t => term.paste(t));
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // On layout change: keep rows fitted to viewport height, cols fixed.
+    // Observe outerRef (not containerRef) to avoid looping — containerRef
+    // is inline-block and changes size whenever xterm resizes its canvas.
     const ro = new ResizeObserver(() => {
       const dims = fitAddon.proposeDimensions();
       if (dims) term.resize(TERMINAL_COLS, dims.rows);
     });
-    ro.observe(containerRef.current);
+    ro.observe(outerRef.current);
 
     const ws = new WebSocket(WS_URL);
 
@@ -101,8 +119,10 @@ function TerminalPane({ connection }) {
         <span>● {status}</span>
         <span style={{ color:"#8b949e" }}>{connection?.user}@{connection?.host}:{connection?.port}</span>
       </div>
-      <div style={{ flex:1, overflowX:"auto", overflowY:"hidden" }}>
-        <div ref={containerRef} style={{ height:"100%" }} />
+      <div ref={outerRef} style={{ flex:1, position:"relative" }}>
+        <div style={{ position:"absolute", inset:0, overflowX:"auto", overflowY:"hidden" }}>
+          <div ref={containerRef} style={{ height:"100%", display:"inline-block", verticalAlign:"top" }} />
+        </div>
       </div>
     </div>
   );
