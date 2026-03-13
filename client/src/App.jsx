@@ -14,7 +14,9 @@ function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
 function TerminalPane({ connection }) {
   const outerRef    = useRef(null); // observed for layout changes
   const containerRef = useRef(null); // xterm mount point (inline-block, sizes to canvas)
+  const termRef     = useRef(null); // live xterm instance for scrollbar interaction
   const [status, setStatus] = useState("disconnected");
+  const [vscroll, setVscroll] = useState({ pos: 0, total: 0, rows: 0 });
 
   useEffect(() => {
     if (!connection || !containerRef.current) return;
@@ -35,6 +37,14 @@ function TerminalPane({ connection }) {
       lineHeight: 1.5,
       cursorBlink: true,
     });
+
+    termRef.current = term;
+
+    // Sync the overlay scrollbar with xterm's buffer state
+    function syncVscroll() {
+      const buf = term.buffer.active;
+      setVscroll({ pos: buf.viewportY, total: buf.length, rows: term.rows });
+    }
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -66,6 +76,11 @@ function TerminalPane({ connection }) {
       if (dims) term.resize(TERMINAL_COLS, dims.rows);
     });
     ro.observe(outerRef.current);
+
+    // Drive the overlay scrollbar
+    term.onScroll(syncVscroll);
+    term.onWriteParsed(syncVscroll);
+    term.onResize(syncVscroll);
 
     const ws = new WebSocket(WS_URL);
 
@@ -122,10 +137,27 @@ function TerminalPane({ connection }) {
       ro.disconnect();
       ws.close();
       term.dispose();
+      termRef.current = null;
     };
   }, [connection?.name]);
 
   const statusColor = { connected:"#56d364", connecting:"#f0883e", disconnected:"#8b949e", error:"#f85149" }[status];
+
+  // Overlay scrollbar geometry
+  const scrollable  = Math.max(0, vscroll.total - vscroll.rows);
+  const thumbRatio  = scrollable > 0 ? vscroll.rows / vscroll.total : 1;
+  const thumbTop    = scrollable > 0 ? (vscroll.pos / scrollable) * (1 - thumbRatio) : 0;
+
+  function handleVScrollClick(e) {
+    const t = termRef.current;
+    if (!t) return;
+    const buf = t.buffer.active;
+    const sc  = Math.max(0, buf.length - t.rows);
+    if (sc <= 0) return;
+    const rect   = e.currentTarget.getBoundingClientRect();
+    const target = Math.round(((e.clientY - rect.top) / rect.height) * sc);
+    t.scrollLines(target - buf.viewportY);
+  }
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", background:"#0d1117" }}>
@@ -134,9 +166,19 @@ function TerminalPane({ connection }) {
         <span style={{ color:"#8b949e" }}>{connection?.user}@{connection?.host}:{connection?.port}</span>
       </div>
       <div ref={outerRef} style={{ flex:1, position:"relative" }}>
-        <div style={{ position:"absolute", inset:0, overflowX:"auto", overflowY:"hidden" }}>
+        <div className="term-hscroll" style={{ position:"absolute", inset:0, overflowX:"auto", overflowY:"hidden" }}>
           <div ref={containerRef} style={{ height:"100%", display:"inline-block", verticalAlign:"top" }} />
         </div>
+        {/* Vertical scrollbar overlay — always on the right edge of the viewport */}
+        {scrollable > 0 && (
+          <div onClick={handleVScrollClick}
+            style={{ position:"absolute", right:0, top:0, bottom:0, width:8, zIndex:10, cursor:"pointer",
+              background:"rgba(13,17,23,0.6)", borderLeft:"1px solid #30363d" }}>
+            <div style={{ position:"absolute", left:0, right:0,
+              top:`${thumbTop * 100}%`, height:`${thumbRatio * 100}%`,
+              background:"rgba(201,209,217,0.35)", borderRadius:4, pointerEvents:"none" }} />
+          </div>
+        )}
       </div>
     </div>
   );
