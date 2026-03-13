@@ -104,7 +104,21 @@ function TerminalPane({ connection }) {
         ws.send(JSON.stringify({ type: "resize", cols, rows }));
     });
 
+    // Right-click: copy selection if text is selected, paste if nothing is selected
+    const onContextMenu = (e) => {
+      e.preventDefault();
+      const sel = term.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel);
+        term.clearSelection();
+      } else {
+        navigator.clipboard.readText().then(t => term.paste(t));
+      }
+    };
+    containerRef.current.addEventListener("contextmenu", onContextMenu);
+
     return () => {
+      containerRef.current?.removeEventListener("contextmenu", onContextMenu);
       ro.disconnect();
       ws.close();
       term.dispose();
