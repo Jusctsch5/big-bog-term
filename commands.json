@@ -1,0 +1,26 @@
+[
+  {
+    "name": "System",
+    "type": "folder",
+    "children": [
+      { "name": "System info",        "type": "command", "command": "uname -a" },
+      { "name": "Uptime",             "type": "command", "command": "uptime" },
+      { "name": "Disk usage",         "type": "command", "command": "df -h" },
+      { "name": "Memory",             "type": "command", "command": "free -h" },
+      { "name": "Running processes",  "type": "command", "command": "ps aux" },
+      { "name": "Top",                "type": "command", "command": "top" }
+    ]
+  },
+  {
+    "name": "Network",
+    "type": "folder",
+    "children": [
+      { "name": "IP addresses",       "type": "command", "command": "ip addr show" },
+      { "name": "Open ports",         "type": "command", "command": "ss -tlnp" },
+      { "name": "Connections",        "type": "command", "command": "netstat -an" }
+    ]
+  },
+  { "name": "List files",    "type": "command", "command": "ls -la" },
+  { "name": "Where am I",   "type": "command", "command": "pwd" },
+  { "name": "Who am I",     "type": "command", "command": "whoami" }
+]

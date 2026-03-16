@@ -60,6 +60,13 @@ app.get("/hosts", (_, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get("/commands", (_, res) => {
+  try {
+    const p = join(__dirname, "commands.json");
+    res.json(existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── HTTP + WebSocket server ───────────────────────────────────────────────────
 const server = createServer(app);
 const wss = new WebSocketServer({ server, path: "/terminal" });

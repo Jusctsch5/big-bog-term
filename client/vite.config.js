@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/hosts": "http://127.0.0.1:3001",
+      "/commands": "http://127.0.0.1:3001",
       "/terminal": {
         target: "ws://127.0.0.1:3001",
         ws: true,
