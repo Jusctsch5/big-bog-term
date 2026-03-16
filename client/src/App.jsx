@@ -142,8 +142,6 @@ function TerminalPane({ connection }) {
     };
   }, [connection?.name]);
 
-  const statusColor = { connected:"#56d364", connecting:"#f0883e", disconnected:"#8b949e", error:"#f85149" }[status];
-
   // Overlay scrollbar geometry
   const scrollable  = Math.max(0, vscroll.total - vscroll.rows);
   const thumbRatio  = scrollable > 0 ? vscroll.rows / vscroll.total : 1;
@@ -162,10 +160,6 @@ function TerminalPane({ connection }) {
 
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", background:"#0d1117" }}>
-      <div style={{ background:"#161b22", borderBottom:"1px solid #30363d", padding:"2px 12px", fontSize:11, color:statusColor, display:"flex", justifyContent:"space-between", flexShrink:0 }}>
-        <span>● {status}</span>
-        <span style={{ color:"#8b949e" }}>{connection?.user}@{connection?.host}:{connection?.port}</span>
-      </div>
       <div ref={outerRef} style={{ flex:1, position:"relative" }}>
         <div className="term-hscroll" style={{ position:"absolute", inset:0, overflowX:"auto", overflowY:"hidden" }}>
           <div ref={containerRef} style={{ height:"100%", display:"inline-block", verticalAlign:"top" }} />
@@ -279,7 +273,7 @@ export default function App() {
               style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 12px", borderRadius:6, cursor:"pointer",
                 background: t.id === activeTab ? "#0d1117" : "transparent",
                 border: t.id === activeTab ? "1px solid #30363d" : "1px solid transparent", whiteSpace:"nowrap", fontSize:12 }}>
-              <span style={{ color: t.id === activeTab ? "#79c0ff" : "#8b949e" }}>⬛ {t.conn?.name}</span>
+              <span style={{ color: t.id === activeTab ? "#79c0ff" : "#8b949e" }}>{t.conn?.name}</span>
               {tabs.length > 1 && <span onClick={e => { e.stopPropagation(); closeTab(t.id); }} style={{ color:"#8b949e", fontSize:10, cursor:"pointer" }}>✕</span>}
             </div>
           ))}
