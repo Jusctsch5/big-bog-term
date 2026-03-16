@@ -25,7 +25,8 @@ function startServer() {
 }
 
 // ── Poll until Express is accepting connections ───────────────────────────────
-function waitForServer(timeout = 8000) {
+// 30 s — Windows + ssh2 crypto startup can be slow
+function waitForServer(timeout = 30000) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeout;
     const attempt  = () => {
@@ -34,7 +35,7 @@ function waitForServer(timeout = 8000) {
         resolve();
       }).on('error', () => {
         if (Date.now() > deadline) reject(new Error('Backend did not start in time'));
-        else setTimeout(attempt, 200);
+        else setTimeout(attempt, 300);
       });
     };
     attempt();
@@ -71,7 +72,13 @@ function createWindow() {
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   startServer();
-  await waitForServer();
+  try {
+    await waitForServer();
+  } catch (err) {
+    // Backend took too long — open the window anyway; the React app will show
+    // its "Backend not running" error page until the server catches up.
+    console.error('[electron] waitForServer:', err.message);
+  }
   createWindow();
 });
 
