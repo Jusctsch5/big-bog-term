@@ -49,6 +49,13 @@ function createWindow() {
     height: 900,
     backgroundColor: '#0d1117',
     title: 'Big Bog Term',
+    // Remove the native title bar; keep native traffic-light controls via overlay
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color:       '#161b22', // matches tab bar background
+      symbolColor: '#c9d1d9', // icon colour
+      height: 36,             // matches our 36 px tab bar
+    },
     webPreferences: {
       nodeIntegration:  false,
       contextIsolation: true,

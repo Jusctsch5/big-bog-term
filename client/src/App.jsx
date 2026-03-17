@@ -7,6 +7,9 @@ const BACKEND      = "";
 const TERMINAL_COLS = 2000;
 const WS_URL       = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/terminal`;
 
+// Reserve space for Electron's native title-bar overlay controls (~138 px on Windows)
+const isElectron   = navigator.userAgent.includes("Electron");
+
 function uid()     { return Math.random().toString(36).slice(2, 9); }
 function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
 
@@ -358,15 +361,20 @@ export default function App() {
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#0d1117", color: "#c9d1d9" }}>
 
       {/* ── Tab bar (Windows-Terminal-style: one slim bar, no separate title) ── */}
+      {/* WebkitAppRegion drag lets the user move the window by clicking empty space */}
       <div style={{ display: "flex", alignItems: "center", background: "#161b22",
-        borderBottom: "1px solid #30363d", padding: "0 4px", gap: 2, flexShrink: 0, height: 36 }}>
+        borderBottom: "1px solid #30363d", padding: "0 4px", gap: 2, flexShrink: 0, height: 36,
+        WebkitAppRegion: "drag",
+        paddingRight: isElectron ? 148 : 4 /* leave room for native min/max/close */ }}>
 
         {/* Commands dropdown — far left */}
-        <CommandsDropdown commands={commands} onSelect={handleCommandSelect} />
+        <div style={{ WebkitAppRegion: "no-drag", flexShrink: 0 }}>
+          <CommandsDropdown commands={commands} onSelect={handleCommandSelect} />
+        </div>
 
-        {/* Scrollable tab strip */}
+        {/* Scrollable tab strip — no-drag so tab clicks and horizontal scroll work */}
         <div style={{ display: "flex", flex: 1, overflowX: "auto", alignItems: "center",
-          gap: 1, padding: "4px 0", minWidth: 0 }}>
+          gap: 1, padding: "4px 0", minWidth: 0, WebkitAppRegion: "no-drag" }}>
           {tabs.map(t => (
             <div key={t.id} onClick={() => setActiveTab(t.id)}
               style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px",
@@ -383,7 +391,7 @@ export default function App() {
         </div>
 
         {/* + new tab */}
-        <div ref={newTabMenuRef} style={{ position: "relative", flexShrink: 0 }}>
+        <div ref={newTabMenuRef} style={{ position: "relative", flexShrink: 0, WebkitAppRegion: "no-drag" }}>
           <button onClick={() => hosts.length > 1 ? setShowNewTabMenu(m => !m) : newTab()}
             title="New tab" style={{ ...btn, padding: "1px 9px", fontSize: 18, lineHeight: 1 }}>+</button>
           {showNewTabMenu && (
@@ -403,7 +411,9 @@ export default function App() {
         </div>
 
         {/* Split */}
-        <button onClick={splitPane} style={btn}>⊞ Split</button>
+        <div style={{ WebkitAppRegion: "no-drag", flexShrink: 0 }}>
+          <button onClick={splitPane} style={btn}>⊞ Split</button>
+        </div>
       </div>
 
       {/* ── Terminal area — all tabs mounted, inactive hidden ── */}
