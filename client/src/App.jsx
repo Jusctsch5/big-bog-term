@@ -88,7 +88,7 @@ function CommandsDropdown({ commands, onSelect }) {
 }
 
 // ── Single terminal pane — xterm.js + SSH over WebSocket ──────────────────────
-function TerminalPane({ connection, pendingCommand }) {
+function TerminalPane({ connection, pendingCommand, paneId, onFocus }) {
   const outerRef     = useRef(null);
   const containerRef = useRef(null);
   const termRef      = useRef(null);
@@ -145,9 +145,14 @@ function TerminalPane({ connection, pendingCommand }) {
           navigator.clipboard.readText().then(t => term.paste(t));
           return false;
         }
+        // Ctrl+W and Ctrl+T are handled at the App level; don't forward to PTY
+        if (!e.shiftKey && (e.key === "w" || e.key === "t")) return false;
       }
       return true;
     });
+
+    // Tell App which pane is focused so Ctrl+W knows what to close
+    term.onFocus(() => onFocus?.(paneId));
 
     const ro = new ResizeObserver(() => {
       const dims = fitAddon.proposeDimensions();
@@ -246,7 +251,7 @@ function TerminalPane({ connection, pendingCommand }) {
 }
 
 // ── Split view ─────────────────────────────────────────────────────────────────
-function SplitView({ panes, connection, onClose, pendingCommand }) {
+function SplitView({ panes, connection, onClose, pendingCommand, onPaneFocus }) {
   return (
     <div style={{ display: "flex", flexDirection: "row", height: "100%", gap: 2 }}>
       {panes.map((p, i) => (
@@ -257,8 +262,8 @@ function SplitView({ panes, connection, onClose, pendingCommand }) {
               style={{ position: "absolute", top: 4, right: 6, zIndex: 10, background: "transparent",
                 border: "none", color: "#8b949e", cursor: "pointer", fontSize: 12 }}>✕</button>
           )}
-          {/* Only first pane in the active tab receives injected commands */}
-          <TerminalPane connection={connection} pendingCommand={i === 0 ? pendingCommand : undefined} />
+          <TerminalPane connection={connection} pendingCommand={i === 0 ? pendingCommand : undefined}
+            paneId={p.id} onFocus={onPaneFocus} />
         </div>
       ))}
     </div>
@@ -274,7 +279,15 @@ export default function App() {
   const [backendOk, setBackendOk] = useState(null);
   const [pendingCommand, setPendingCommand] = useState(null);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
-  const newTabMenuRef = useRef(null);
+  const [activePaneId, setActivePaneId] = useState(null);
+  const newTabMenuRef  = useRef(null);
+  // Refs so the global keydown handler always sees current values without re-registering
+  const activeTabRef   = useRef(activeTab);
+  const activePaneRef  = useRef(activePaneId);
+  const hostsRef       = useRef(hosts);
+  useEffect(() => { activeTabRef.current  = activeTab;   }, [activeTab]);
+  useEffect(() => { activePaneRef.current = activePaneId; }, [activePaneId]);
+  useEffect(() => { hostsRef.current      = hosts;        }, [hosts]);
 
   useEffect(() => {
     (async () => {
@@ -335,6 +348,56 @@ export default function App() {
   function handleCommandSelect(cmd) {
     setPendingCommand({ text: cmd, nonce: uid() });
   }
+
+  function handlePaneFocus(paneId) {
+    setActivePaneId(paneId);
+  }
+
+  // ── Global keyboard shortcuts ─────────────────────────────────────────────
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (!e.ctrlKey || e.shiftKey) return;
+
+      // Ctrl+W — close focused split pane; close tab if it was the last pane
+      if (e.key === "w") {
+        e.preventDefault();
+        const tabId  = activeTabRef.current;
+        const paneId = activePaneRef.current;
+        setTabs(ts => {
+          const tab = ts.find(t => t.id === tabId);
+          if (!tab) return ts;
+          if (tab.panes.length <= 1) {
+            // Close the whole tab (keep at least one tab)
+            const next = ts.filter(t => t.id !== tabId);
+            if (!next.length) return ts;
+            setActiveTab(next[next.length - 1].id);
+            return next;
+          }
+          // Close just the split pane
+          const pid  = paneId ?? tab.panes[0].id;
+          return ts.map(t => t.id === tabId
+            ? { ...t, panes: t.panes.filter(p => p.id !== pid) } : t);
+        });
+      }
+
+      // Ctrl+T — open a new tab to the localhost / 127.0.0.1 host
+      if (e.key === "t") {
+        e.preventDefault();
+        const h = hostsRef.current;
+        const conn = h.find(x =>
+          x.host === "127.0.0.1" || x.host === "localhost" ||
+          x.name === "127.0.0.1" || x.name === "localhost"
+        ) ?? h[0];
+        if (!conn) return;
+        const t = { id: uid(), conn, panes: [{ id: uid() }] };
+        setTabs(ts => [...ts, t]);
+        setActiveTab(t.id);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []); // refs keep this handler fresh without re-registering
 
   if (backendOk === false) return (
     <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
@@ -422,7 +485,8 @@ export default function App() {
           <div key={tab.id} style={{ position: "absolute", inset: 0, flexDirection: "column",
             display: tab.id === activeTab ? "flex" : "none" }}>
             <SplitView panes={tab.panes} connection={tab.conn} onClose={closePane}
-              pendingCommand={tab.id === activeTab ? pendingCommand : undefined} />
+              pendingCommand={tab.id === activeTab ? pendingCommand : undefined}
+              onPaneFocus={handlePaneFocus} />
           </div>
         ))}
       </div>
