@@ -4,29 +4,30 @@
   "description": "Web-based SSH terminal",
   "main": "electron/main.cjs",
   "scripts": {
-    "start":          "node server.js",
-    "electron:dev":   "electron .",
-    "electron:pack":  "npm --prefix client run build && electron-builder --dir",
-    "electron:dist":  "npm --prefix client run build && electron-builder"
+    "start": "node server.js",
+    "electron:dev": "concurrently --kill-others -n vite,electron -c cyan,yellow \"npm --prefix client run dev\" \"electron .\"",
+    "electron:pack": "npm --prefix client run build && electron-builder --dir",
+    "electron:dist": "npm --prefix client run build && electron-builder"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "express":    "^5.2.1",
+    "express": "^5.2.1",
     "ssh-config": "^5.1.0",
-    "ssh2":       "^1.17.0",
-    "ws":         "^8.19.0"
+    "ssh2": "^1.17.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "electron":         "^34.0.0",
+    "concurrently": "^9.2.1",
+    "electron": "^34.0.0",
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId":       "com.jusctsch5.big-bog-term",
+    "appId": "com.jusctsch5.big-bog-term",
     "productName": "Big Bog Term",
-    "asar":        false,
+    "asar": false,
     "files": [
       "electron/**/*",
       "server.js",
@@ -35,7 +36,14 @@
       "client/dist/**/*"
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

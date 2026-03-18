@@ -24,23 +24,23 @@ function startServer() {
   server.on('exit', (code) => console.log(`[server] exited (${code})`));
 }
 
-// ── Poll until Express is accepting connections ───────────────────────────────
-// 30 s — Windows + ssh2 crypto startup can be slow
-function waitForServer(timeout = 30000) {
+// ── Generic URL poller ────────────────────────────────────────────────────────
+function waitForURL(url, label, timeout = 30000) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeout;
     const attempt  = () => {
-      http.get(`http://127.0.0.1:${PORT}/hosts`, (res) => {
-        res.resume();
-        resolve();
-      }).on('error', () => {
-        if (Date.now() > deadline) reject(new Error('Backend did not start in time'));
-        else setTimeout(attempt, 300);
-      });
+      http.get(url, (res) => { res.resume(); resolve(); })
+        .on('error', () => {
+          if (Date.now() > deadline) reject(new Error(`${label} did not start in time`));
+          else setTimeout(attempt, 300);
+        });
     };
     attempt();
   });
 }
+
+const waitForServer = () => waitForURL(`http://127.0.0.1:${PORT}/hosts`, 'Backend');
+const waitForVite   = () => waitForURL('http://localhost:5173',           'Vite');
 
 // ── Browser window ────────────────────────────────────────────────────────────
 function createWindow() {
@@ -64,10 +64,12 @@ function createWindow() {
 
   win.removeMenu();
 
-  // In dev, Vite serves the frontend (run `npm run dev` in client/ separately).
-  // In prod, Express serves the built frontend from client/dist.
-  const url = isDev ? `http://localhost:5173` : `http://127.0.0.1:${PORT}`;
+  // In dev, Vite serves the frontend; in prod, Express serves client/dist.
+  const url = isDev ? 'http://localhost:5173' : `http://127.0.0.1:${PORT}`;
   win.loadURL(url);
+
+  // Open DevTools automatically in dev so console errors are immediately visible
+  if (isDev) win.webContents.openDevTools();
 
   // External links open in the OS browser, not inside Electron
   win.webContents.setWindowOpenHandler(({ url: href }) => {
@@ -79,12 +81,13 @@ function createWindow() {
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   startServer();
+  // Wait for both the backend and (in dev) Vite — whichever is slower wins
+  const waits = [waitForServer()];
+  if (isDev) waits.push(waitForVite());
   try {
-    await waitForServer();
+    await Promise.all(waits);
   } catch (err) {
-    // Backend took too long — open the window anyway; the React app will show
-    // its "Backend not running" error page until the server catches up.
-    console.error('[electron] waitForServer:', err.message);
+    console.error('[electron]', err.message);
   }
   createWindow();
 });
