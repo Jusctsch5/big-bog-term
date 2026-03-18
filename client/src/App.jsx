@@ -49,7 +49,7 @@ function CommandMenuItem({ item, onSelect, depth = 0 }) {
   );
 }
 
-function CommandsDropdown({ commands, onSelect }) {
+function CommandsDropdown({ commands, onSelect, onReconnectAll }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -71,6 +71,15 @@ function CommandsDropdown({ commands, onSelect }) {
           zIndex: 200, minWidth: 220, maxHeight: 400, overflowY: "auto",
           boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
         }}>
+          {/* ⚠ System action — reconnects every mounted terminal pane */}
+          <div onClick={() => { onReconnectAll(); setOpen(false); }}
+            style={{ padding: "7px 10px", cursor: "pointer", fontSize: 12,
+              color: "#e3b341", display: "flex", alignItems: "center", gap: 7,
+              borderBottom: "1px solid #30363d" }}
+            onMouseEnter={e => { e.currentTarget.style.background = "#21262d"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = ""; }}>
+            <span>⚠</span><span>Reconnect all terminals</span>
+          </div>
           {commands.length === 0
             ? <div style={{ padding: "10px 14px", color: "#8b949e", fontSize: 12, lineHeight: 1.6 }}>
                 No commands configured.<br />
@@ -88,7 +97,7 @@ function CommandsDropdown({ commands, onSelect }) {
 }
 
 // ── Single terminal pane — xterm.js + SSH over WebSocket ──────────────────────
-function TerminalPane({ connection, pendingCommand, paneId, onFocus }) {
+function TerminalPane({ connection, pendingCommand, paneId, onFocus, reconnectKey }) {
   const outerRef     = useRef(null);
   const containerRef = useRef(null);
   const termRef      = useRef(null);
@@ -210,7 +219,7 @@ function TerminalPane({ connection, pendingCommand, paneId, onFocus }) {
       termRef.current = null;
       wsRef.current   = null;
     };
-  }, [connection?.name]);
+  }, [connection?.name, reconnectKey]);
 
   // Overlay scrollbar geometry
   const scrollable = Math.max(0, vscroll.total - vscroll.rows);
@@ -251,7 +260,7 @@ function TerminalPane({ connection, pendingCommand, paneId, onFocus }) {
 }
 
 // ── Split view ─────────────────────────────────────────────────────────────────
-function SplitView({ panes, connection, onClose, pendingCommand, onPaneFocus }) {
+function SplitView({ panes, connection, onClose, pendingCommand, onPaneFocus, reconnectKey }) {
   return (
     <div style={{ display: "flex", flexDirection: "row", height: "100%", gap: 2 }}>
       {panes.map((p, i) => (
@@ -263,7 +272,7 @@ function SplitView({ panes, connection, onClose, pendingCommand, onPaneFocus }) 
                 border: "none", color: "#8b949e", cursor: "pointer", fontSize: 12 }}>✕</button>
           )}
           <TerminalPane connection={connection} pendingCommand={i === 0 ? pendingCommand : undefined}
-            paneId={p.id} onFocus={onPaneFocus} />
+            paneId={p.id} onFocus={onPaneFocus} reconnectKey={reconnectKey} />
         </div>
       ))}
     </div>
@@ -280,6 +289,7 @@ export default function App() {
   const [pendingCommand, setPendingCommand] = useState(null);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
   const [activePaneId, setActivePaneId] = useState(null);
+  const [reconnectKey, setReconnectKey] = useState(0);
   const newTabMenuRef  = useRef(null);
   // Refs so the global keydown handler always sees current values without re-registering
   const activeTabRef   = useRef(activeTab);
@@ -347,6 +357,10 @@ export default function App() {
 
   function handleCommandSelect(cmd) {
     setPendingCommand({ text: cmd, nonce: uid() });
+  }
+
+  function handleReconnectAll() {
+    setReconnectKey(k => k + 1);
   }
 
   function handlePaneFocus(paneId) {
@@ -432,7 +446,7 @@ export default function App() {
 
         {/* Commands dropdown — far left */}
         <div style={{ WebkitAppRegion: "no-drag", flexShrink: 0 }}>
-          <CommandsDropdown commands={commands} onSelect={handleCommandSelect} />
+          <CommandsDropdown commands={commands} onSelect={handleCommandSelect} onReconnectAll={handleReconnectAll} />
         </div>
 
         {/* Scrollable tab strip — no-drag so tab clicks and horizontal scroll work */}
@@ -486,7 +500,7 @@ export default function App() {
             display: tab.id === activeTab ? "flex" : "none" }}>
             <SplitView panes={tab.panes} connection={tab.conn} onClose={closePane}
               pendingCommand={tab.id === activeTab ? pendingCommand : undefined}
-              onPaneFocus={handlePaneFocus} />
+              onPaneFocus={handlePaneFocus} reconnectKey={reconnectKey} />
           </div>
         ))}
       </div>
